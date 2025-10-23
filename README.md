@@ -15,9 +15,11 @@ The key challenge is that softmax is not associative like addition in matrix mul
 Self-attention computes weighted sums of values based on query-key similarities. For simplicity, we ignore batches, heads, masks, and scaling initially (added later).
 
 The formula is:
+
 $$
 O = \softmax(Q K^T) V
 $$
+
 where $Q, K, V, O \in \mathbb{R}^{L \times D}$, $L$ is sequence length, $D$ is head dimension. Softmax applies row-wise.
 
 Standard implementation factorizes:
