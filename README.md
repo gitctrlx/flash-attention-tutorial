@@ -15,16 +15,16 @@ The key challenge is that softmax is not associative like addition in matrix mul
 Self-attention computes weighted sums of values based on query-key similarities. For simplicity, we ignore batches, heads, masks, and scaling initially (added later).
 
 The formula is:
-\[
+$$
 O = \softmax(Q K^T) V
-\]
-where \(Q, K, V, O \in \mathbb{R}^{L \times D}\), \(L\) is sequence length, \(D\) is head dimension. Softmax applies row-wise.
+$$
+where $Q, K, V, O \in \mathbb{R}^{L \times D}$, $L$ is sequence length, $D$ is head dimension. Softmax applies row-wise.
 
 Standard implementation factorizes:
-\[
+$$
 X = Q K^T, \quad A = \softmax(X), \quad O = A V
-\]
-This requires storing \(X, A\) (\(O(L^2)\) memory), which is inefficient for long \(L\).
+$$
+This requires storing $X, A$ ($O(L^2)$ memory), which is inefficient for long $L$.
 
 In PyTorch, a basic (non-Flash) implementation with batches, heads, mask, and scaling:
 
@@ -62,21 +62,21 @@ Tiling works for matrix multiplication (associative addition) but not directly f
 
 ## 2. (Safe) Softmax
 
-Softmax for a vector \(x = [x_1, \dots, x_N]\):
-\[
+Softmax for a vector $x = [x_1, \dots, x_N]$:
+$$
 \softmax(x)_i = \frac{e^{x_i}}{\sum_{j=1}^N e^{x_j}}
-\]
-Large \(x_i\) can cause overflow (e.g., in float16).
+$$
+Large $x_i$ can cause overflow (e.g., in float16).
 
-Safe softmax subtracts max \(m = \max_j x_j\):
-\[
+Safe softmax subtracts max $m = \max_j x_j$:
+$$
 \softmax(x)_i = \frac{e^{x_i - m}}{\sum_{j=1}^N e^{x_j - m}}
-\]
+$$
 This is a 3-pass algorithm:
 
-- Pass 1: Compute global max \(m\).
-- Pass 2: Compute denominator \(d = \sum e^{x_j - m}\).
-- Pass 3: Compute each \(a_i = e^{x_i - m} / d\).
+- Pass 1: Compute global max $m$.
+- Pass 2: Compute denominator $d = \sum e^{x_j - m}$.
+- Pass 3: Compute each $a_i = e^{x_i - m} / d$.
 
 Pseudo-code (from document):
 
@@ -109,14 +109,14 @@ This requires multiple passes, inefficient without fitting all in SRAM.
 
 ## 3. Online Softmax
 
-To reduce passes, use a surrogate \(d_i' = \sum_{j=1}^i e^{x_j - m_i}\), with recurrence:
-\[
+To reduce passes, use a surrogate $d_i' = \sum_{j=1}^i e^{x_j - m_i}$, with recurrence:
+$$
 d_i' = d_{i-1}' \cdot e^{m_{i-1} - m_i} + e^{x_i - m_i}
-\]
-\(d_N' = d_N\), so 2-pass:
+$$
+$d_N' = d_N$, so 2-pass:
 
-- Pass 1: Compute \(m_i, d_i'\).
-- Pass 2: Compute \(a_i = e^{x_i - m_N} / d_N'\).
+- Pass 1: Compute $m_i, d_i'$.
+- Pass 2: Compute $a_i = e^{x_i - m_N} / d_N'$.
 
 Pseudo-code:
 
@@ -161,17 +161,17 @@ This reduces I/O but still 2 passes.
 
 ## 4. FlashAttention
 
-For attention, we don't need \(A\), just \(O = A V\). Derive a one-pass recurrence for row \(k\):
+For attention, we don't need $A$, just $O = A V$. Derive a one-pass recurrence for row $k$:
 
 Notations:
 
-- \(x_i = Q[k, :] \cdot K^T[:, i]\)
-- \(o_i = \sum_{j=1}^i a_j V[j, :]\)
+- $x_i = Q[k, :] \cdot K^T[:, i]$
+- $o_i = \sum_{j=1}^i a_j V[j, :]$
 
-Using surrogates \(o_i' = \sum_{j=1}^i \frac{e^{x_j - m_i}}{d_i'} V[j, :]\), with recurrence:
-\[
+Using surrogates $o_i' = \sum_{j=1}^i \frac{e^{x_j - m_i}}{d_i'} V[j, :]$, with recurrence:
+$$
 o_i' = o_{i-1}' \cdot \frac{d_{i-1}' e^{m_{i-1} - m_i}}{d_i'} + \frac{e^{x_i - m_i}}{d_i'} V[i, :]
-\]
+$$
 
 Full one-pass:
 
@@ -218,10 +218,10 @@ def simple_flash_attention(Q, K, V, mask=None):
 
 ## 5. FlashAttention (Tiling)
 
-For long \(L\), tile into blocks of size \(B\). For tile \(i\):
+For long $L$, tile into blocks of size $B$. For tile $i$:
 
-- Compute local \(x, m^{(\local)}\)
-- Update global \(m, d', o'\) with sums over block.
+- Compute local $x, m^{(\local)}$
+- Update global $m, d', o'$ with sums over block.
 
 Pseudo-code (from document):
 
@@ -300,122 +300,7 @@ def flash_attention_forward(Q, K, V, mask=None):
     l = torch.cat(l_blocks, dim=2)
     m = torch.cat(m_blocks, dim=2)
     return O, l, m
-
-def flash_attention_backward(Q, K, V, mask, O, l, m, dO):
-    Q_BLOCK_SIZE = min(BLOCK_SIZE, Q.shape[2])
-    KV_BLOCK_SIZE = BLOCK_SIZE
-    
-    Q_blocks = torch.split(Q, Q_BLOCK_SIZE, dim=2)
-    K_blocks = torch.split(K, KV_BLOCK_SIZE, dim=2)
-    V_blocks = torch.split(V, KV_BLOCK_SIZE, dim=2)
-    mask_blocks = torch.split(mask, KV_BLOCK_SIZE, dim=1)
-    
-    Tr, Tc = len(Q_blocks), len(K_blocks)
-    
-    scale = 1 / np.sqrt(Q.shape[-1])
-    l_blocks = list(torch.split(l, Q_BLOCK_SIZE, dim=2))
-    m_blocks = list(torch.split(m, Q_BLOCK_SIZE, dim=2))
-    
-    dQ = torch.zeros_like(Q, device=Q.device)
-    dK = torch.zeros_like(K, device=Q.device)
-    dV = torch.zeros_like(V, device=Q.device)
-    
-    dQ_blocks = list(torch.split(dQ, Q_BLOCK_SIZE, dim=2))
-    dK_blocks = list(torch.split(dK, KV_BLOCK_SIZE, dim=2))
-    dV_blocks = list(torch.split(dV, KV_BLOCK_SIZE, dim=2))
-    
-    O_blocks = list(torch.split(O, Q_BLOCK_SIZE, dim=2))
-    dO_blocks = list(torch.split(dO, Q_BLOCK_SIZE, dim=2))
-    
-    for j in range(Tc):
-        Kj = K_blocks[j]
-        Vj = V_blocks[j]
-        maskj = mask_blocks[j]
-        maskj_temp = maskj.unsqueeze(1).unsqueeze(1)
-        
-        dKj_block = torch.zeros_like(dK_blocks[j], device=Q.device)
-        dVj_block = torch.zeros_like(dV_blocks[j], device=Q.device)
-        
-        for i in range(Tr):
-            Qi = Q_blocks[i]
-            Oi = O_blocks[i]
-            dOi = dO_blocks[i]
-            li = l_blocks[i]
-            mi = m_blocks[i]
-            
-            Qi_scaled = Qi * scale
-            S_ij = torch.matmul(Qi_scaled, Kj.transpose(-1, -2))
-            S_ij = torch.where(maskj_temp > 0, S_ij, NEG_INF)
-            
-            P_ij = torch.exp(S_ij - mi) / li
-            P_ij = torch.where(maskj_temp > 0, P_ij, 0.0)
-            
-            dVj_block += torch.matmul(P_ij.transpose(-1, -2), dOi)
-            
-            dP_ij = torch.matmul(dOi, Vj.transpose(-1, -2))
-            
-            Di = torch.sum(dOi * Oi, dim=-1, keepdims=True)
-            dS_ij = P_ij * (dP_ij - Di)
-            
-            dQ_blocks[i] += torch.matmul(dS_ij, Kj) * scale
-            
-            dKj_block += torch.matmul(dS_ij.transpose(-1, -2), Qi) * scale
-        
-        dK_blocks[j] = dKj_block
-        dV_blocks[j] = dVj_block
-    
-    dQ = torch.cat(dQ_blocks, dim=2)
-    dK = torch.cat(dK_blocks, dim=2)
-    dV = torch.cat(dV_blocks, dim=2)
-    return dQ, dK, dV
-
-class FlashAttentionFunction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, Q, K, V, mask=None):
-        O, l, m = flash_attention_forward(Q, K, V, mask)
-        ctx.save_for_backward(Q, K, V, mask, O, l, m)
-        return O
-    
-    @staticmethod
-    def backward(ctx, dO):
-        Q, K, V, mask, O, l, m = ctx.saved_tensors
-        dQ, dK, dV = flash_attention_backward(Q, K, V, mask, O, l, m, dO)
-        return dQ, dK, dV, None
-
-def flash_attention(Q, K, V, mask=None):
-    return FlashAttentionFunction.apply(Q, K, V, mask)
 ```
-
-### Testing the Full Implementation
-
-```python
-# Test code
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-Q = torch.randn(1, 2, 4096, 64, device=device, requires_grad=True)  # Smaller d for demo
-K = torch.randn(1, 2, 4096, 64, device=device, requires_grad=True)
-V = torch.randn(1, 2, 4096, 64, device=device, requires_grad=True)
-mask = torch.ones(1, 4096, device=device)
-
-O_flash = flash_attention(Q, K, V, mask)
-O_normal = normal_attention(Q, K, V, mask)
-print(torch.allclose(O_flash, O_normal, atol=1e-4))  # True
-
-# Backward test
-dO = torch.randn_like(O_flash)
-O_flash.sum().backward()  # Compute grads via Flash
-dQ_flash, dK_flash, dV_flash = Q.grad, K.grad, V.grad
-
-Q.grad, K.grad, V.grad = None, None, None
-O_normal.sum().backward()  # Via standard
-print(torch.allclose(dQ_flash, Q.grad, atol=1e-4))  # True
-# Similarly for dK, dV
-```
-
-### Performance Note
-
-On GPU with large sequences, Flash is faster (e.g., 2-5x) and uses less memory. For masks, use 1 for attend, 0 for mask out (e.g., causal: triu).
-
-This completes the tutorial! For figures (e.g., tiling diagram), imagine sweeping tiles in SRAM while updating states—SRAM footprint is \(O(B D)\), independent of \(L\).
 
 ## License
 
