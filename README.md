@@ -17,7 +17,7 @@ Self-attention computes weighted sums of values based on query-key similarities.
 The formula is:
 
 $$
-O = \softmax(Q K^T) V
+O = softmax(Q K^T) V
 $$
 
 where $Q, K, V, O \in \mathbb{R}^{L \times D}$, $L$ is sequence length, $D$ is head dimension. Softmax applies row-wise.
@@ -25,7 +25,7 @@ where $Q, K, V, O \in \mathbb{R}^{L \times D}$, $L$ is sequence length, $D$ is h
 Standard implementation factorizes:
 
 $$
-X = Q K^T, \quad A = \softmax(X), \quad O = A V
+X = Q K^T, \quad A = softmax(X), \quad O = A V
 $$
 
 This requires storing $X, A$ ($O(L^2)$ memory), which is inefficient for long $L$.
@@ -69,7 +69,7 @@ Tiling works for matrix multiplication (associative addition) but not directly f
 Softmax for a vector $x = [x_1, \dots, x_N]$:
 
 $$
-\softmax(x)_i = \frac{e^{x_i}}{\sum_{j=1}^N e^{x_j}}
+softmax(x)_i = \frac{e^{x_i}}{\sum_{j=1}^N e^{x_j}}
 $$
 
 Large $x_i$ can cause overflow (e.g., in float16).
@@ -77,7 +77,7 @@ Large $x_i$ can cause overflow (e.g., in float16).
 Safe softmax subtracts max $m = \max_j x_j$:
 
 $$
-\softmax(x)_i = \frac{e^{x_i - m}}{\sum_{j=1}^N e^{x_j - m}}
+softmax(x)_i = \frac{e^{x_i - m}}{\sum_{j=1}^N e^{x_j - m}}
 $$
 
 This is a 3-pass algorithm:
