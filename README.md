@@ -23,9 +23,11 @@ $$
 where $Q, K, V, O \in \mathbb{R}^{L \times D}$, $L$ is sequence length, $D$ is head dimension. Softmax applies row-wise.
 
 Standard implementation factorizes:
+
 $$
 X = Q K^T, \quad A = \softmax(X), \quad O = A V
 $$
+
 This requires storing $X, A$ ($O(L^2)$ memory), which is inefficient for long $L$.
 
 In PyTorch, a basic (non-Flash) implementation with batches, heads, mask, and scaling:
@@ -65,15 +67,19 @@ Tiling works for matrix multiplication (associative addition) but not directly f
 ## 2. (Safe) Softmax
 
 Softmax for a vector $x = [x_1, \dots, x_N]$:
+
 $$
 \softmax(x)_i = \frac{e^{x_i}}{\sum_{j=1}^N e^{x_j}}
 $$
+
 Large $x_i$ can cause overflow (e.g., in float16).
 
 Safe softmax subtracts max $m = \max_j x_j$:
+
 $$
 \softmax(x)_i = \frac{e^{x_i - m}}{\sum_{j=1}^N e^{x_j - m}}
 $$
+
 This is a 3-pass algorithm:
 
 - Pass 1: Compute global max $m$.
@@ -112,9 +118,11 @@ This requires multiple passes, inefficient without fitting all in SRAM.
 ## 3. Online Softmax
 
 To reduce passes, use a surrogate $d_i' = \sum_{j=1}^i e^{x_j - m_i}$, with recurrence:
+
 $$
 d_i' = d_{i-1}' \cdot e^{m_{i-1} - m_i} + e^{x_i - m_i}
 $$
+
 $d_N' = d_N$, so 2-pass:
 
 - Pass 1: Compute $m_i, d_i'$.
@@ -171,6 +179,7 @@ Notations:
 - $o_i = \sum_{j=1}^i a_j V[j, :]$
 
 Using surrogates $o_i' = \sum_{j=1}^i \frac{e^{x_j - m_i}}{d_i'} V[j, :]$, with recurrence:
+
 $$
 o_i' = o_{i-1}' \cdot \frac{d_{i-1}' e^{m_{i-1} - m_i}}{d_i'} + \frac{e^{x_i - m_i}}{d_i'} V[i, :]
 $$
