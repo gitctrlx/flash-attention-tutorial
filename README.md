@@ -1,6 +1,6 @@
 # Flash Attention Tutorial
 
-This tutorial is designed for beginners to understand and implement Flash Attention in PyTorch. We follow the structure of the provided document "From Online Softmax to FlashAttention" by Zihao Ye, explaining each concept step by step, deriving the formulas, and providing PyTorch code snippets. We'll build up from basic self-attention to the full tiled Flash Attention, including both forward and backward passes for a complete, differentiable PyTorch implementation.
+This tutorial is designed for beginners to understand and implement Flash Attention in PyTorch. We follow the structure of the document ["From Online Softmax to FlashAttention"](https://courses.cs.washington.edu/courses/cse599m/23sp/notes/flashattn.pdf) by Zihao Ye, explaining each concept step by step, deriving the formulas, and providing PyTorch code snippets. We'll build up from basic self-attention to the full tiled Flash Attention, including both forward and backward passes for a complete, differentiable PyTorch implementation.
 
 We assume basic knowledge of PyTorch and transformers. All code is tested for correctness and uses CPU/GPU agnostic devices (tested on CPU for simplicity, but works on CUDA). We'll use small dimensions for examples but scale to larger ones in the final implementation.
 
@@ -312,6 +312,13 @@ def flash_attention_forward(Q, K, V, mask=None):
     m = torch.cat(m_blocks, dim=2)
     return O, l, m
 ```
+
+## Reference
+
+- **Tutorial Paper**: [From Online Softmax to FlashAttention](https://courses.cs.washington.edu/courses/cse599m/23sp/notes/flashattn.pdf) by Zihao Ye
+- **Original Flash Attention Paper**: [FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness](https://arxiv.org/abs/2205.14135)
+- **Official Repository**: [Dao-AILab/flash-attention](https://github.com/Dao-AILab/flash-attention)
+- **PyTorch Implementation**: [shreyansh26/FlashAttention-PyTorch](https://github.com/shreyansh26/FlashAttention-PyTorch)
 
 ## License
 
